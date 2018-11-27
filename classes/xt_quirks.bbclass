@@ -36,6 +36,12 @@ python do_unpack_xt_extras() {
     d.setVar("SRC_URI", "")
     # now deliver all the static extras into inner build system
     urls = (d.getVar("XT_QUIRK_UNPACK_SRC_URI") or "").split()
+    
+    if xt_is_reconstruct(d):
+        versions_path = os.path.join(d.getVar("XT_RECONSTRUCT_DIR"), d.getVar("PN"))
+        d.appendVar("FILESEXTRAPATHS", versions_path or "")
+        urls.append("file://" + "build-versions.inc" + ";subdir=repo/build/conf")
+
     for url in urls:
         type, _, location, _, _, _ = bb.fetch.decodeurl(url)
         item = check_url_or_pack(url, type, location, d) + " "
@@ -61,4 +67,48 @@ python do_patch_prepend() {
     except bb.fetch2.BBFetchException as e:
         bb.fatal(str(e))
 
+}
+
+def xt_is_reconstruct(d):
+    bb.debug(1, "Checking if build reconstruction was requested")
+    reconstruct_dir = d.getVar("XT_RECONSTRUCT_DIR") or ""
+
+    if not reconstruct_dir:
+        return False
+
+    pn = d.getVar("PN") or ""
+    if not os.path.isdir(os.path.join(reconstruct_dir, pn)):
+        bb.debug(1, "Nothing to reconstruct")
+        return False
+    return True
+
+addtask xt_config_reconstruct after do_configure before do_compile
+python do_xt_config_reconstruct() {
+    if not xt_is_reconstruct(d):
+        return
+
+    f = os.path.join(d.getVar("S" or ""), "build/conf/local.conf")
+    base_update_conf_value(f, "require", "build-versions.inc")
+}
+
+addtask xt_reconstruct_repo before do_fetch
+python do_xt_reconstruct_repo() {
+    bb.debug(1, "Replacing repo:// with build history")
+    # remeber the original SRC_URI
+    src_uri = (d.getVar("SRC_URI") or "").split()
+    # remove all from the recipe's SRC_URI
+    d.setVar("SRC_URI", "")
+    for src in src_uri:
+        type, _, location,_ , _,_ = bb.fetch.decodeurl(src)
+        if type != 'repo':
+            print("SRC - ", src)
+            d.appendVar("SRC_URI", src)
+        else:
+            #val = "repo://gitpct.epam.com/epmd-aepr/build-history" + d.getVar("XT_RECONSTRUCT_DIR" or "") + d.getVar("PN" or "") + "meta-revs.xml"
+            #repo://github.com/xen-troops/manifests;protocol=https;branch=master;manifest=prod_devel/domd.xml;scmdata=keep
+            #git@gitpct.epam.com:epmd-aepr/build-history.git
+            val =  "repo://git@gitpct.epam.com/epmd-aepr/build-history;branch=master;manifest=dailybuild/2018-11-16/prod-devel/salvator-xs-h3/16-15-25/meta-revs.xml;scmdata=keep"
+            d.appendVar("SRC_URI", val)
+            print("SRC_URI___ - ", d.getVar("SRC_URI" or ""))
+            #print("SRC_REPO - ", src)
 }
